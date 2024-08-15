@@ -1,0 +1,60 @@
+import cv2
+import numpy as np
+from skimage.feature import hog
+from skimage import exposure
+import tkinter as tk
+from tkinter import filedialog
+
+def get_green_color_mask(image):
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    lower_green = np.array([30, 20, 20])
+    upper_green = np.array([90, 255, 255])
+    green_mask = cv2.inRange(hsv_image, lower_green, upper_green)
+    return green_mask
+
+def calculate_hog_density(hog_features, window_size, threshold):
+    density_mask = np.zeros(hog_features.shape[:2], dtype=np.uint8)
+    for y in range(0, hog_features.shape[0], window_size[1]):
+        for x in range(0, hog_features.shape[1], window_size[0]):
+            window = hog_features[y:y + window_size[1], x:x + window_size[0]]
+            density = np.sum(window > 0) / (window_size[0] * window_size[1])
+            if density > threshold:
+                density_mask[y:y + window_size[1], x:x + window_size[0]] = 255
+    return density_mask
+
+def detect_trees(image, green_mask, density_mask):
+    combined_mask = cv2.bitwise_and(green_mask, density_mask)
+    contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        if cv2.contourArea(cnt) > 100:
+            cv2.drawContours(image, [cnt], -1, (0, 255, 0), 2)
+    return image
+
+def process_image(image_path):
+    image = cv2.imread(image_path)
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, hog_image = hog(gray_image, orientations=9, pixels_per_cell=(8, 8),
+                       cells_per_block=(2, 2), visualize=True, feature_vector=False)
+    hog_image_rescaled = exposure.rescale_intensity(hog_image, in_range=(0, 10))
+    density_mask = calculate_hog_density(hog_image_rescaled, window_size=(15, 15), threshold=0.20)
+    green_mask = get_green_color_mask(image)
+    final_image = detect_trees(image.copy(), green_mask, density_mask)
+    return final_image
+
+def select_image():
+    file_path = filedialog.askopenfilename()
+    if file_path:
+        processed_image = process_image(file_path)
+        cv2.imshow("Processed Image", processed_image)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+# GUI setup
+root = tk.Tk()
+root.title("Tree Detection")
+root.geometry("300x100")
+
+select_button = tk.Button(root, text="Select Image", command=select_image)
+select_button.pack(pady=20)
+
+root.mainloop()
